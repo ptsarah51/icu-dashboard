@@ -1,6 +1,6 @@
 import { useState, useRef, useEffect } from "react";
 
-const CODE_LENGTH = 6;
+const CODE_LENGTH = 7;
 
 export default function LoginPage({ admins, onLogin }) {
   const [digits, setDigits] = useState(Array(CODE_LENGTH).fill(""));
