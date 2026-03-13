@@ -1,5 +1,4 @@
 import { useState, useRef, useEffect } from "react";
-import { DEFAULT_PASSCODE } from "../utils/storage";
 
 const CODE_LENGTH = 6;
 
@@ -10,14 +9,11 @@ export default function LoginPage({ admins, onLogin }) {
   const [success, setSuccess] = useState(false);
   const inputRefs = useRef([]);
 
-  const isFirstTime = admins.length === 1 && admins[0].code === DEFAULT_PASSCODE;
-
   useEffect(() => {
     inputRefs.current[0]?.focus();
   }, []);
 
   const handleDigit = (i, val) => {
-    if (!/^\d*$/.test(val) && val !== "") return; // numbers only
     const next = [...digits];
     next[i] = val.slice(-1);
     setDigits(next);
@@ -44,7 +40,7 @@ export default function LoginPage({ admins, onLogin }) {
 
   const handlePaste = (e) => {
     e.preventDefault();
-    const pasted = e.clipboardData.getData("text").replace(/\D/g, "").slice(0, CODE_LENGTH);
+    const pasted = e.clipboardData.getData("text").slice(0, CODE_LENGTH);
     const next = Array(CODE_LENGTH).fill("");
     pasted.split("").forEach((c, i) => { next[i] = c; });
     setDigits(next);
@@ -137,23 +133,7 @@ export default function LoginPage({ admins, onLogin }) {
           Enter your admin passcode to continue
         </div>
 
-        {/* First-time hint */}
-        {isFirstTime && (
-          <div style={{
-            background: "rgba(0,212,255,0.08)",
-            border: "1px solid rgba(0,212,255,0.2)",
-            borderRadius: 10,
-            padding: "10px 14px",
-            marginBottom: 24,
-            fontSize: "0.8rem",
-            color: "var(--accent)",
-          }}>
-            🔑 First time? Default code: <strong>{DEFAULT_PASSCODE}</strong>
-            <div style={{ fontSize: "0.72rem", color: "var(--muted)", marginTop: 4 }}>
-              Change this in Admin Management after logging in
-            </div>
-          </div>
-        )}
+
 
         {/* Digit inputs */}
         <div
@@ -170,8 +150,8 @@ export default function LoginPage({ admins, onLogin }) {
             <input
               key={i}
               ref={(el) => (inputRefs.current[i] = el)}
-              type="password"
-              inputMode="numeric"
+              type="text"
+              inputMode="text"
               maxLength={1}
               value={d}
               onChange={(e) => handleDigit(i, e.target.value)}
