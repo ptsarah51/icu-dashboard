@@ -6,7 +6,16 @@ import {
 } from "firebase/firestore";
 
 // ─────────────────────────────────────────────────────────────
-//  PASTE YOUR FIREBASE CONFIG HERE
+//  // For Firebase JS SDK v7.20.0 and later, measurementId is optional
+const firebaseConfig = {
+  apiKey: "AIzaSyAgJtRXV9pm2e8mF9eSH1WMHwhFJaHFHRo",
+  authDomain: "icu-dashboard-ea208.firebaseapp.com",
+  projectId: "icu-dashboard-ea208",
+  storageBucket: "icu-dashboard-ea208.firebasestorage.app",
+  messagingSenderId: "996328709559",
+  appId: "1:996328709559:web:b7740aba195357a5e55c32",
+  measurementId: "G-Q7WRSSLJ35"
+};
 // ─────────────────────────────────────────────────────────────
 const firebaseConfig = {
   apiKey: "PASTE_YOUR_API_KEY_HERE",
@@ -22,7 +31,7 @@ const firebaseConfig = {
 //  Change this to any private string you choose.
 //  See FIREBASE_SETUP.md for the matching Firestore rule.
 // ─────────────────────────────────────────────────────────────
-export const APP_SECRET = "SDCC-HS-2025-SECRET";
+export const APP_SECRET = "SDCC-HS-SARAHD-86";
 // ─────────────────────────────────────────────────────────────
 
 const app = initializeApp(firebaseConfig);
