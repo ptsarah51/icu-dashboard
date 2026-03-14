@@ -1,6 +1,9 @@
 import { initializeApp } from "firebase/app";
-import { getFirestore, doc, setDoc, getDoc, onSnapshot,
-         collection, addDoc, getDocs, query, orderBy, updateDoc } from "firebase/firestore";
+import {
+  getFirestore, doc, setDoc, getDoc, onSnapshot,
+  collection, addDoc, getDocs, query, orderBy, updateDoc,
+  enableIndexedDbPersistence,
+} from "firebase/firestore";
 
 // ─────────────────────────────────────────────────────────────
 //  PASTE YOUR FIREBASE CONFIG HERE
@@ -13,13 +16,32 @@ const firebaseConfig = {
   messagingSenderId: "PASTE_YOUR_MESSAGING_SENDER_ID_HERE",
   appId: "PASTE_YOUR_APP_ID_HERE",
 };
+
+// ─────────────────────────────────────────────────────────────
+//  APP SECRET — must match your Firestore security rule below.
+//  Change this to any private string you choose.
+//  See FIREBASE_SETUP.md for the matching Firestore rule.
+// ─────────────────────────────────────────────────────────────
+export const APP_SECRET = "SDCC-HS-2025-SECRET";
 // ─────────────────────────────────────────────────────────────
 
 const app = initializeApp(firebaseConfig);
 export const db = getFirestore(app);
 
-const BOARD_REF  = () => doc(db, "icu", "board");
-const ADMINS_REF = () => doc(db, "icu", "admins");
+// Enable offline persistence — Firestore caches data on the device
+// so it works even with poor connectivity and loads from disk instantly
+enableIndexedDbPersistence(db).catch((err) => {
+  if (err.code === "failed-precondition") {
+    // Multiple tabs open — persistence only works in one tab at a time
+    console.warn("Firestore persistence unavailable: multiple tabs open");
+  } else if (err.code === "unimplemented") {
+    // Browser doesn't support it — graceful fallback
+    console.warn("Firestore persistence not supported in this browser");
+  }
+});
+
+const BOARD_REF    = () => doc(db, "icu", "board");
+const ADMINS_REF   = () => doc(db, "icu", "admins");
 const SESSIONS_COL = "icu_sessions";
 
 // ── Board ────────────────────────────────────────────────────
@@ -29,6 +51,7 @@ export async function saveBoard(state) {
     patients:    state.patients,
     assignments: state.assignments,
     lastSaved:   new Date().toISOString(),
+    _secret:     APP_SECRET,
   });
 }
 
@@ -37,31 +60,35 @@ export async function loadBoard() {
   return snap.exists() ? snap.data() : null;
 }
 
-export function subscribeToBoardState(callback) {
-  return onSnapshot(BOARD_REF(), (snap) => {
-    if (snap.exists()) callback(snap.data());
-  });
+// Real-time listener with error callback so we know if rules have expired
+export function subscribeToBoardState(callback, onError) {
+  return onSnapshot(
+    BOARD_REF(),
+    (snap) => { if (snap.exists()) callback(snap.data()); },
+    (err) => {
+      console.error("Firestore snapshot error:", err.code, err.message);
+      if (onError) onError(err);
+    }
+  );
 }
 
-// Doctor saves their patient statuses — updates patients array on board
+// Doctor saves their patient statuses
 export async function savePatientStatuses(docId, statusMap) {
   const snap = await getDoc(BOARD_REF());
   if (!snap.exists()) return;
   const data = snap.data();
-  const patients = (data.patients || []).map((p) => {
-    if (statusMap[p.id] !== undefined) return { ...p, status: statusMap[p.id] };
-    return p;
-  });
+  const patients = (data.patients || []).map((p) =>
+    statusMap[p.id] !== undefined ? { ...p, status: statusMap[p.id] } : p
+  );
   await updateDoc(BOARD_REF(), { patients });
 }
 
 // ── Sessions ─────────────────────────────────────────────────
 export async function saveSession(session) {
-  await addDoc(collection(db, SESSIONS_COL), session);
+  await addDoc(collection(db, SESSIONS_COL), { ...session, _secret: APP_SECRET });
 }
 
 export async function overwriteTodaySession(session) {
-  // Find today's session doc if any and replace it, else create new
   const col = collection(db, SESSIONS_COL);
   const q = query(col, orderBy("date", "desc"));
   const snap = await getDocs(q);
@@ -83,7 +110,7 @@ export async function loadSessions() {
 
 // ── Admins ───────────────────────────────────────────────────
 export async function saveAdminsToFirebase(admins) {
-  await setDoc(ADMINS_REF(), { list: admins });
+  await setDoc(ADMINS_REF(), { list: admins, _secret: APP_SECRET });
 }
 
 export async function loadAdminsFromFirebase() {

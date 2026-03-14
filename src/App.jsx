@@ -32,6 +32,7 @@ export default function App() {
   // loading=true only blocks the admin login screen, NOT the viewer
   // Viewer shows cached data immediately and updates silently
   const [loading, setLoading] = useState(!isViewer);
+  const [firebaseError, setFirebaseError] = useState(null);
   const stateRef = useRef(state);
   stateRef.current = state;
 
@@ -82,24 +83,27 @@ export default function App() {
     if (!isViewer) return;
     // Subscribe to Firestore. First snapshot arrives fast (~200-500ms).
     // Each update is also written to localStorage so next visit is instant.
-    const unsub = subscribeToBoardState((board) => {
-      // Auto-fix missing viewer codes
-      let doctors = board.doctors || [];
-      let needsSave = false;
-      doctors = doctors.map((d) => {
-        if (!d.viewerCode) { needsSave = true; return { ...d, viewerCode: generateViewerCode() }; }
-        return d;
-      });
-      const updated = {
-        doctors,
-        patients:    board.patients    || [],
-        assignments: board.assignments || {},
-        lastSaved:   board.lastSaved   || null,
-      };
-      // Write to cache so next open is instant
-      saveViewerCache(updated);
-      setState((prev) => ({ ...prev, ...updated }));
-    });
+    const unsub = subscribeToBoardState(
+      (board) => {
+        setFirebaseError(null);
+        // Auto-fix missing viewer codes
+        let doctors = board.doctors || [];
+        doctors = doctors.map((d) =>
+          !d.viewerCode ? { ...d, viewerCode: generateViewerCode() } : d
+        );
+        const updated = {
+          doctors,
+          patients:    board.patients    || [],
+          assignments: board.assignments || {},
+          lastSaved:   board.lastSaved   || null,
+        };
+        saveViewerCache(updated);
+        setState((prev) => ({ ...prev, ...updated }));
+      },
+      (err) => {
+        setFirebaseError(err.code || "unknown");
+      }
+    );
     return () => unsub();
   }, [isViewer]);
 
@@ -251,7 +255,7 @@ export default function App() {
     );
   }
 
-  if (isViewer) return <ViewerApp state={state} />;
+  if (isViewer) return <ViewerApp state={state} firebaseError={firebaseError} />;
   if (!currentAdmin) return <LoginPage admins={admins} onLogin={handleLogin} />;
 
   return (

@@ -3,7 +3,7 @@ import { getInitials, DOC_COLORS, getDoctorPatients, isKuwaiti, isMale,
          fmtDate, STATUS_OPTIONS, LOCATION_COLORS, groupByLocation } from "../utils/helpers";
 import { savePatientStatuses } from "../utils/firebase";
 
-export default function ViewerApp({ state }) {
+export default function ViewerApp({ state, firebaseError }) {
   const [syncing, setSyncing] = useState(false);
   const prevLastSaved = useRef(state.lastSaved);
   const [viewerCode, setViewerCode] = useState("");
@@ -13,9 +13,18 @@ export default function ViewerApp({ state }) {
   const [saving, setSaving] = useState(false);
   const [saved, setSaved] = useState(false);
 
+  // Track whether Firebase has delivered at least one snapshot yet.
+  // Start as true if we already have cached doctors (instant load),
+  // false if doctors list is empty (first visit, waiting for Firebase).
+  const [firebaseReady, setFirebaseReady] = useState(() => state.doctors.length > 0);
+
   // State comes from App.jsx which holds a single live Firestore subscription.
-  // Updates arrive in real-time the moment the admin saves — no polling needed.
   const { doctors, patients, assignments, lastSaved } = state;
+
+  // Mark Firebase as ready the moment doctors arrive
+  useEffect(() => {
+    if (doctors.length > 0) setFirebaseReady(true);
+  }, [doctors.length]);
 
   // Flash a brief "Updated" indicator when fresh data arrives from Firebase
   useEffect(() => {
@@ -67,6 +76,86 @@ export default function ViewerApp({ state }) {
     setSaving(false);
   };
 
+  // ── Firebase error diagnostic screen ───────────────────────
+  if (firebaseError) {
+    const isRules = firebaseError === "permission-denied";
+    const isMissing = firebaseError === "not-found";
+    return (
+      <div style={{
+        minHeight: "100vh", background: "var(--bg)",
+        display: "flex", alignItems: "center", justifyContent: "center", padding: 24,
+      }}>
+        <div style={{
+          background: "var(--surface)", border: "1px solid var(--danger)",
+          borderRadius: 20, padding: "36px 28px", width: "100%", maxWidth: 420,
+          textAlign: "center",
+        }}>
+          <div style={{ fontSize: "2.5rem", marginBottom: 12 }}>⚠️</div>
+          <div style={{ fontFamily: "Syne, sans-serif", fontWeight: 800, fontSize: "1.1rem", color: "var(--danger)", marginBottom: 12 }}>
+            Firebase Connection Error
+          </div>
+          <div style={{
+            background: "rgba(239,68,68,0.08)", border: "1px solid rgba(239,68,68,0.2)",
+            borderRadius: 8, padding: "10px 14px", marginBottom: 16,
+            fontFamily: "monospace", fontSize: "0.82rem", color: "var(--danger)",
+          }}>
+            Error code: {firebaseError}
+          </div>
+
+          {isRules && (
+            <div style={{ color: "var(--muted)", fontSize: "0.83rem", lineHeight: 1.7, textAlign: "left" }}>
+              <strong style={{ color: "var(--text)" }}>Your Firestore security rules have expired.</strong>
+              <br />Fix it in 30 seconds:
+              <ol style={{ marginTop: 8, paddingLeft: 18 }}>
+                <li>Go to <strong>console.firebase.google.com</strong></li>
+                <li>Open your project → <strong>Firestore Database</strong></li>
+                <li>Click the <strong>Rules</strong> tab</li>
+                <li>Replace everything with:</li>
+              </ol>
+              <div style={{
+                background: "var(--surface2)", borderRadius: 6, padding: "10px 12px",
+                fontFamily: "monospace", fontSize: "0.75rem", marginTop: 8,
+                color: "var(--accent)", textAlign: "left",
+              }}>
+                {`rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    match /{document=**} {
+      allow read, write: if true;
+    }
+  }
+}`}
+              </div>
+              <div style={{ marginTop: 8 }}>5. Click <strong>Publish</strong> → then reload this page.</div>
+            </div>
+          )}
+
+          {!isRules && (
+            <div style={{ color: "var(--muted)", fontSize: "0.83rem", lineHeight: 1.7 }}>
+              Unable to connect to the database. Please check:<br />
+              <ul style={{ textAlign: "left", marginTop: 8, paddingLeft: 18 }}>
+                <li>Your Firebase config in <code>firebase.js</code> is correct</li>
+                <li>Firestore Database is enabled in Firebase console</li>
+                <li>Your Firestore security rules allow read/write</li>
+              </ul>
+              <div style={{ marginTop: 12 }}>
+                Reload the page to try again.
+              </div>
+            </div>
+          )}
+
+          <button
+            className="btn btn-ghost"
+            style={{ marginTop: 20, width: "100%", justifyContent: "center" }}
+            onClick={() => window.location.reload()}
+          >
+            🔄 Reload Page
+          </button>
+        </div>
+      </div>
+    );
+  }
+
   // ── Viewer Login Screen ──────────────────────────────────
   if (!currentDoc) {
     return (
@@ -87,25 +176,62 @@ export default function ViewerApp({ state }) {
             WebkitBackgroundClip: "text", WebkitTextFillColor: "transparent", backgroundClip: "text",
             marginBottom: 6,
           }}>SDCC HS Viewer</div>
-          <div style={{ color: "var(--muted)", fontSize: "0.82rem", marginBottom: 28 }}>
+          <div style={{ color: "var(--muted)", fontSize: "0.82rem", marginBottom: 24 }}>
             Enter your personal viewer code to see your patient list
           </div>
 
-          <input
-            className="input-field"
-            style={{ textAlign: "center", fontSize: "1.1rem", letterSpacing: "0.15em", fontFamily: "monospace", marginBottom: 12 }}
-            placeholder="SD0000"
-            value={viewerCode}
-            maxLength={6}
-            onChange={(e) => { setViewerCode(e.target.value.toUpperCase()); setCodeError(""); }}
-            onKeyDown={(e) => e.key === "Enter" && handleViewerLogin()}
-            autoFocus
-          />
-          {codeError && <div style={{ color: "var(--danger)", fontSize: "0.8rem", marginBottom: 12 }}>{codeError}</div>}
-          <button className="btn btn-primary" style={{ width: "100%", justifyContent: "center" }} onClick={handleViewerLogin}>
-            View My List
-          </button>
+          {/* Connecting indicator — only shown on first-ever visit before cache exists */}
+          {!firebaseReady ? (
+            <div style={{ marginBottom: 20 }}>
+              <div style={{
+                display: "flex", alignItems: "center", justifyContent: "center", gap: 10,
+                background: "rgba(0,212,255,0.06)", border: "1px solid rgba(0,212,255,0.15)",
+                borderRadius: 10, padding: "12px 16px", marginBottom: 16,
+              }}>
+                <div style={{
+                  width: 16, height: 16, flexShrink: 0,
+                  border: "2px solid var(--border)", borderTop: "2px solid var(--accent)",
+                  borderRadius: "50%", animation: "spin 0.8s linear infinite",
+                }} />
+                <div style={{ textAlign: "left" }}>
+                  <div style={{ fontSize: "0.82rem", color: "var(--accent)", fontWeight: 600 }}>Connecting…</div>
+                  <div style={{ fontSize: "0.72rem", color: "var(--muted)", marginTop: 2 }}>
+                    Loading your list — this takes a few seconds on first visit
+                  </div>
+                </div>
+              </div>
+              <input
+                className="input-field"
+                style={{ textAlign: "center", fontSize: "1.1rem", letterSpacing: "0.15em", fontFamily: "monospace", marginBottom: 12, opacity: 0.5 }}
+                placeholder="SD0000"
+                value={viewerCode}
+                maxLength={6}
+                disabled
+              />
+              <button className="btn btn-primary" style={{ width: "100%", justifyContent: "center", opacity: 0.5 }} disabled>
+                Waiting for connection…
+              </button>
+            </div>
+          ) : (
+            <div>
+              <input
+                className="input-field"
+                style={{ textAlign: "center", fontSize: "1.1rem", letterSpacing: "0.15em", fontFamily: "monospace", marginBottom: 12 }}
+                placeholder="SD0000"
+                value={viewerCode}
+                maxLength={6}
+                onChange={(e) => { setViewerCode(e.target.value.toUpperCase()); setCodeError(""); }}
+                onKeyDown={(e) => e.key === "Enter" && handleViewerLogin()}
+                autoFocus
+              />
+              {codeError && <div style={{ color: "var(--danger)", fontSize: "0.8rem", marginBottom: 12 }}>{codeError}</div>}
+              <button className="btn btn-primary" style={{ width: "100%", justifyContent: "center" }} onClick={handleViewerLogin}>
+                View My List
+              </button>
+            </div>
+          )}
         </div>
+        <style>{`@keyframes spin { to { transform: rotate(360deg); } }`}</style>
       </div>
     );
   }
