@@ -3,7 +3,7 @@ import * as XLSX from "xlsx";
 import AdminBoard from "./components/AdminBoard";
 import ViewerApp from "./components/ViewerApp";
 import LoginPage from "./components/LoginPage";
-import { loadAdmins, saveAdmins, loadState, saveViewerCache, loadViewerCache } from "./utils/storage";
+import { loadAdmins, saveAdmins, loadState, saveViewerCache, loadViewerCache, saveAdminSession, loadAdminSession, clearAdminSession } from "./utils/storage";
 import {
   saveBoard, loadBoard, saveSession, overwriteTodaySession, loadSessions,
   saveAdminsToFirebase, loadAdminsFromFirebase, subscribeToBoardState,
@@ -18,7 +18,7 @@ export default function App() {
   const isViewer = new URLSearchParams(window.location.search).get("view") === "viewer";
 
   const [admins, setAdmins] = useState(() => loadAdmins());
-  const [currentAdmin, setCurrentAdmin] = useState(null);
+  const [currentAdmin, setCurrentAdmin] = useState(() => loadAdminSession());
 
   // For viewer: seed from localStorage cache instantly so UI is ready before Firebase responds
   const [state, setState] = useState(() => {
@@ -107,8 +107,14 @@ export default function App() {
     return () => unsub();
   }, [isViewer]);
 
-  const handleLogin = useCallback((admin) => setCurrentAdmin(admin), []);
-  const handleLogout = useCallback(() => setCurrentAdmin(null), []);
+  const handleLogin = useCallback((admin) => {
+    setCurrentAdmin(admin);
+    saveAdminSession(admin);
+  }, []);
+  const handleLogout = useCallback(() => {
+    setCurrentAdmin(null);
+    clearAdminSession();
+  }, []);
 
   const handleSaveAdmins = useCallback(async (updated) => {
     setAdmins(updated);

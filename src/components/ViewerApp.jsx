@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef } from "react";
 import { getInitials, DOC_COLORS, getDoctorPatients, isKuwaiti, isMale,
-         fmtDate, STATUS_OPTIONS, LOCATION_COLORS, groupByLocation } from "../utils/helpers";
+         fmtDate, STATUS_OPTIONS, UNIT_WORK_STATUS_OPTIONS, LOCATION_COLORS, groupByLocation } from "../utils/helpers";
 import { savePatientStatuses } from "../utils/firebase";
 
 export default function ViewerApp({ state, firebaseError }) {
@@ -341,7 +341,7 @@ service cloud.firestore {
 function ViewerPatientRow({ patient, status, onStatusChange }) {
   const male = isMale(patient.gender);
   const kw = isKuwaiti(patient.nationality);
-  const locColor = LOCATION_COLORS[patient.location] || {};
+  const options = patient.isUnitWork ? UNIT_WORK_STATUS_OPTIONS : STATUS_OPTIONS;
 
   return (
     <div style={{
@@ -365,9 +365,9 @@ function ViewerPatientRow({ patient, status, onStatusChange }) {
         </div>
       </div>
 
-      {/* Status picker */}
+      {/* Status picker — patients get Phase1/Discharge/NotSeen, unit work gets In Progress/Done/Need Help */}
       <div style={{ display: "flex", gap: 6, flexWrap: "wrap", marginTop: 8 }}>
-        {STATUS_OPTIONS.map((opt) => (
+        {options.map((opt) => (
           <button
             key={opt.value}
             onClick={() => onStatusChange(status === opt.value ? "" : opt.value)}

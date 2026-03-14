@@ -1,6 +1,8 @@
 const KEY = "icu_react_v1";
 const AUTH_KEY = "icu_admins_v1";
 const VIEWER_CACHE_KEY = "icu_viewer_cache_v1";
+const SESSION_KEY = "icu_admin_session_v1";
+const SESSION_DURATION_MS = 60 * 60 * 1000; // 1 hour
 
 export const DEFAULT_PASSCODE = "ICU2024";
 
@@ -65,4 +67,31 @@ export function loadViewerCache() {
     if (!raw) return null;
     return JSON.parse(raw);
   } catch { return null; }
+}
+
+// ── Admin session (survives page refresh for 1 hour) ────────
+export function saveAdminSession(admin) {
+  try {
+    localStorage.setItem(SESSION_KEY, JSON.stringify({
+      admin,
+      expiresAt: Date.now() + SESSION_DURATION_MS,
+    }));
+  } catch (e) { console.warn(e); }
+}
+
+export function loadAdminSession() {
+  try {
+    const raw = localStorage.getItem(SESSION_KEY);
+    if (!raw) return null;
+    const { admin, expiresAt } = JSON.parse(raw);
+    if (Date.now() > expiresAt) {
+      localStorage.removeItem(SESSION_KEY);
+      return null;
+    }
+    return admin;
+  } catch { return null; }
+}
+
+export function clearAdminSession() {
+  try { localStorage.removeItem(SESSION_KEY); } catch (e) {}
 }

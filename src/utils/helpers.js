@@ -59,9 +59,15 @@ export const LOCATION_COLORS = {
 };
 
 export const STATUS_OPTIONS = [
-  { value: "phase1",   label: "Phase 1 CR",  color: "#10b981", icon: "🟢" },
+  { value: "phase1",    label: "Phase 1 CR", color: "#10b981", icon: "🟢" },
   { value: "discharge", label: "Discharge",  color: "#3b82f6", icon: "🔵" },
-  { value: "notSeen",  label: "Not Seen",    color: "#f59e0b", icon: "🟡" },
+  { value: "notSeen",   label: "Not Seen",   color: "#f59e0b", icon: "🟡" },
+];
+
+export const UNIT_WORK_STATUS_OPTIONS = [
+  { value: "inProgress", label: "In Progress", color: "#f59e0b", icon: "🟡" },
+  { value: "done",       label: "Done",         color: "#10b981", icon: "🟢" },
+  { value: "needHelp",   label: "Need Help",    color: "#ef4444", icon: "🔴" },
 ];
 
 export const DOC_COLORS = [
