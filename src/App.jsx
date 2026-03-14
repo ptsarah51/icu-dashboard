@@ -1,43 +1,86 @@
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useRef } from "react";
 import * as XLSX from "xlsx";
 import AdminBoard from "./components/AdminBoard";
 import ViewerApp from "./components/ViewerApp";
 import LoginPage from "./components/LoginPage";
-import { loadState, saveState, loadAdmins, saveAdmins } from "./utils/storage";
+import { loadAdmins, saveAdmins } from "./utils/storage";
+import {
+  saveBoard, loadBoard, saveSession, loadSessions,
+  saveAdminsToFirebase, loadAdminsFromFirebase,
+  subscribeToBoardState,
+} from "./utils/firebase";
 import { uid } from "./utils/helpers";
+
+function defaultBoardState() {
+  return { doctors: [], patients: [], assignments: {}, sessions: [], lastSaved: null };
+}
 
 export default function App() {
   const isViewer = new URLSearchParams(window.location.search).get("view") === "viewer";
 
   const [admins, setAdmins] = useState(() => loadAdmins());
-  const [currentAdmin, setCurrentAdmin] = useState(null); // null = not logged in
-  const [state, setState] = useState(() => loadState());
+  const [currentAdmin, setCurrentAdmin] = useState(null);
+  const [state, setState] = useState(defaultBoardState());
+  const [loading, setLoading] = useState(true);
+  const stateRef = useRef(state);
+  stateRef.current = state;
 
-  // Auto-save app state
+  // ── Load initial data from Firebase ─────────────────────
   useEffect(() => {
-    saveState(state);
-  }, [state]);
+    async function init() {
+      try {
+        // Load admins from Firebase (fallback to localStorage)
+        const firebaseAdmins = await loadAdminsFromFirebase();
+        if (firebaseAdmins && firebaseAdmins.length > 0) {
+          setAdmins(firebaseAdmins);
+          saveAdmins(firebaseAdmins); // keep local copy in sync
+        }
 
-  // Viewer auto-refresh
+        // Load board state
+        const board = await loadBoard();
+        if (board) {
+          const sessions = await loadSessions();
+          setState({
+            doctors: board.doctors || [],
+            patients: board.patients || [],
+            assignments: board.assignments || {},
+            sessions: sessions || [],
+            lastSaved: board.lastSaved || null,
+          });
+        }
+      } catch (err) {
+        console.warn("Firebase load failed, using local state:", err);
+      } finally {
+        setLoading(false);
+      }
+    }
+    init();
+  }, []);
+
+  // ── Viewer: real-time subscription ──────────────────────
   useEffect(() => {
     if (!isViewer) return;
-    const interval = setInterval(() => {
-      setState(loadState());
-    }, 20000);
-    return () => clearInterval(interval);
+    setLoading(true);
+    const unsub = subscribeToBoardState((board) => {
+      setState((prev) => ({
+        ...prev,
+        doctors: board.doctors || [],
+        patients: board.patients || [],
+        assignments: board.assignments || {},
+        lastSaved: board.lastSaved || null,
+      }));
+      setLoading(false);
+    });
+    return () => unsub();
   }, [isViewer]);
 
-  const handleLogin = useCallback((admin) => {
-    setCurrentAdmin(admin);
-  }, []);
+  const handleLogin = useCallback((admin) => setCurrentAdmin(admin), []);
+  const handleLogout = useCallback(() => setCurrentAdmin(null), []);
 
-  const handleLogout = useCallback(() => {
-    setCurrentAdmin(null);
-  }, []);
-
-  const handleSaveAdmins = useCallback((updated) => {
+  const handleSaveAdmins = useCallback(async (updated) => {
     setAdmins(updated);
     saveAdmins(updated);
+    try { await saveAdminsToFirebase(updated); } catch (e) { console.warn(e); }
   }, []);
 
   const addDoctor = useCallback((name) => {
@@ -88,10 +131,7 @@ export default function App() {
             };
           }).filter((p) => p.name && p.name !== "Unknown");
 
-          if (patients.length === 0) {
-            reject(new Error("No patients found"));
-            return;
-          }
+          if (patients.length === 0) { reject(new Error("No patients found")); return; }
 
           setState((prev) => {
             const pidSet = new Set(patients.map((p) => p.id));
@@ -102,9 +142,7 @@ export default function App() {
             return { ...prev, patients, assignments };
           });
           resolve(patients.length);
-        } catch (err) {
-          reject(err);
-        }
+        } catch (err) { reject(err); }
       };
       reader.readAsBinaryString(file);
     });
@@ -126,33 +164,56 @@ export default function App() {
     });
   }, []);
 
-  const saveAndPublish = useCallback(() => {
-    setState((prev) => {
-      const snap = {
-        date: new Date().toISOString(),
-        patients: JSON.parse(JSON.stringify(prev.patients)),
-        assignments: JSON.parse(JSON.stringify(prev.assignments)),
-        doctors: JSON.parse(JSON.stringify(prev.doctors)),
-      };
-      return { ...prev, sessions: [...prev.sessions, snap], lastSaved: snap.date };
-    });
+  // ── Save & Publish → writes to Firebase ─────────────────
+  const saveAndPublish = useCallback(async () => {
+    const current = stateRef.current;
+    const snap = {
+      date: new Date().toISOString(),
+      patients: JSON.parse(JSON.stringify(current.patients)),
+      assignments: JSON.parse(JSON.stringify(current.assignments)),
+      doctors: JSON.parse(JSON.stringify(current.doctors)),
+    };
+
+    // Save board to Firebase (viewers see this instantly)
+    await saveBoard(current);
+    // Save session snapshot for reports
+    await saveSession(snap);
+
+    setState((prev) => ({
+      ...prev,
+      sessions: [...prev.sessions, snap],
+      lastSaved: snap.date,
+    }));
   }, []);
 
   const clearSessions = useCallback(() => {
     setState((prev) => ({ ...prev, sessions: [] }));
   }, []);
 
-  // Viewer mode — no login needed
-  if (isViewer) {
-    return <ViewerApp state={state} />;
+  // ── Loading screen ───────────────────────────────────────
+  if (loading) {
+    return (
+      <div style={{
+        minHeight: "100vh", background: "var(--bg)",
+        display: "flex", flexDirection: "column",
+        alignItems: "center", justifyContent: "center", gap: 16,
+      }}>
+        <div style={{
+          width: 48, height: 48,
+          border: "3px solid var(--border)",
+          borderTop: "3px solid var(--accent)",
+          borderRadius: "50%",
+          animation: "spin 0.8s linear infinite",
+        }} />
+        <div style={{ color: "var(--muted)", fontSize: "0.9rem" }}>Connecting…</div>
+        <style>{`@keyframes spin { to { transform: rotate(360deg); } }`}</style>
+      </div>
+    );
   }
 
-  // Not logged in — show login
-  if (!currentAdmin) {
-    return <LoginPage admins={admins} onLogin={handleLogin} />;
-  }
+  if (isViewer) return <ViewerApp state={state} />;
+  if (!currentAdmin) return <LoginPage admins={admins} onLogin={handleLogin} />;
 
-  // Logged in — show dashboard
   return (
     <AdminBoard
       state={state}
