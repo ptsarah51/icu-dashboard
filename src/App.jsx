@@ -3,7 +3,7 @@ import * as XLSX from "xlsx";
 import AdminBoard from "./components/AdminBoard";
 import ViewerApp from "./components/ViewerApp";
 import LoginPage from "./components/LoginPage";
-import { loadAdmins, saveAdmins } from "./utils/storage";
+import { loadAdmins, saveAdmins, loadState, saveViewerCache, loadViewerCache } from "./utils/storage";
 import {
   saveBoard, loadBoard, saveSession, overwriteTodaySession, loadSessions,
   saveAdminsToFirebase, loadAdminsFromFirebase, subscribeToBoardState,
@@ -19,8 +19,19 @@ export default function App() {
 
   const [admins, setAdmins] = useState(() => loadAdmins());
   const [currentAdmin, setCurrentAdmin] = useState(null);
-  const [state, setState] = useState(defaultBoardState());
-  const [loading, setLoading] = useState(true);
+
+  // For viewer: seed from localStorage cache instantly so UI is ready before Firebase responds
+  const [state, setState] = useState(() => {
+    if (isViewer) {
+      const cache = loadViewerCache();
+      if (cache) return { ...defaultBoardState(), ...cache };
+    }
+    return defaultBoardState();
+  });
+
+  // loading=true only blocks the admin login screen, NOT the viewer
+  // Viewer shows cached data immediately and updates silently
+  const [loading, setLoading] = useState(!isViewer);
   const stateRef = useRef(state);
   stateRef.current = state;
 
@@ -69,17 +80,25 @@ export default function App() {
 
   useEffect(() => {
     if (!isViewer) return;
-    // Subscribe once — Firestore pushes the first snapshot immediately (~200ms),
-    // then pushes every time admin saves. No polling, no manual refresh needed.
+    // Subscribe to Firestore. First snapshot arrives fast (~200-500ms).
+    // Each update is also written to localStorage so next visit is instant.
     const unsub = subscribeToBoardState((board) => {
-      setState((prev) => ({
-        ...prev,
-        doctors:     board.doctors     || prev.doctors,
-        patients:    board.patients    || prev.patients,
-        assignments: board.assignments || prev.assignments,
-        lastSaved:   board.lastSaved   || prev.lastSaved,
-      }));
-      setLoading(false);
+      // Auto-fix missing viewer codes
+      let doctors = board.doctors || [];
+      let needsSave = false;
+      doctors = doctors.map((d) => {
+        if (!d.viewerCode) { needsSave = true; return { ...d, viewerCode: generateViewerCode() }; }
+        return d;
+      });
+      const updated = {
+        doctors,
+        patients:    board.patients    || [],
+        assignments: board.assignments || {},
+        lastSaved:   board.lastSaved   || null,
+      };
+      // Write to cache so next open is instant
+      saveViewerCache(updated);
+      setState((prev) => ({ ...prev, ...updated }));
     });
     return () => unsub();
   }, [isViewer]);
@@ -200,6 +219,7 @@ export default function App() {
   }, []);
 
   const saveAndPublish = useCallback(async (mode) => {
+    saveViewerCache(stateRef.current); // pre-warm cache so viewer is instant
     const current = stateRef.current;
     const snap = {
       date: new Date().toISOString(),
@@ -231,7 +251,7 @@ export default function App() {
     );
   }
 
-  if (isViewer) return <ViewerApp state={state} loading={loading} />;
+  if (isViewer) return <ViewerApp state={state} />;
   if (!currentAdmin) return <LoginPage admins={admins} onLogin={handleLogin} />;
 
   return (

@@ -1,9 +1,11 @@
-import { useState } from "react";
+import { useState, useEffect, useRef } from "react";
 import { getInitials, DOC_COLORS, getDoctorPatients, isKuwaiti, isMale,
          fmtDate, STATUS_OPTIONS, LOCATION_COLORS, groupByLocation } from "../utils/helpers";
 import { savePatientStatuses } from "../utils/firebase";
 
-export default function ViewerApp({ state, loading }) {
+export default function ViewerApp({ state }) {
+  const [syncing, setSyncing] = useState(false);
+  const prevLastSaved = useRef(state.lastSaved);
   const [viewerCode, setViewerCode] = useState("");
   const [loggedInDoc, setLoggedInDoc] = useState(null);
   const [codeError, setCodeError] = useState("");
@@ -14,6 +16,15 @@ export default function ViewerApp({ state, loading }) {
   // State comes from App.jsx which holds a single live Firestore subscription.
   // Updates arrive in real-time the moment the admin saves — no polling needed.
   const { doctors, patients, assignments, lastSaved } = state;
+
+  // Flash a brief "Updated" indicator when fresh data arrives from Firebase
+  useEffect(() => {
+    if (lastSaved && lastSaved !== prevLastSaved.current) {
+      prevLastSaved.current = lastSaved;
+      setSyncing(true);
+      setTimeout(() => setSyncing(false), 2000);
+    }
+  }, [lastSaved]);
 
   // Keep loggedInDoc in sync with live doctor data (e.g. name or code changes)
   const currentDoc = loggedInDoc
@@ -35,12 +46,7 @@ export default function ViewerApp({ state, loading }) {
       });
       setLocalStatuses(statusMap);
     } else {
-      // If doctors haven't loaded from Firebase yet, give a clearer message
-      if (doctors.length === 0) {
-        setCodeError("Still loading — please wait a moment and try again.");
-      } else {
-        setCodeError("Code not recognised. Check with your consultant.");
-      }
+      setCodeError("Code not recognised. Please check the code and try again.");
       setViewerCode("");
     }
   };
@@ -84,21 +90,6 @@ export default function ViewerApp({ state, loading }) {
           <div style={{ color: "var(--muted)", fontSize: "0.82rem", marginBottom: 28 }}>
             Enter your personal viewer code to see your patient list
           </div>
-
-          {loading && (
-            <div style={{
-              display: "flex", alignItems: "center", justifyContent: "center", gap: 8,
-              marginBottom: 16, fontSize: "0.78rem", color: "var(--muted)",
-            }}>
-              <div style={{
-                width: 14, height: 14,
-                border: "2px solid var(--border)", borderTop: "2px solid var(--accent)",
-                borderRadius: "50%", animation: "spin 0.8s linear infinite",
-              }} />
-              Connecting to server…
-              <style>{`@keyframes spin { to { transform: rotate(360deg); } }`}</style>
-            </div>
-          )}
 
           <input
             className="input-field"
