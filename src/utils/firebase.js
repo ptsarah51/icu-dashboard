@@ -6,7 +6,8 @@ import {
 } from "firebase/firestore";
 
 // ─────────────────────────────────────────────────────────────
-//  // For Firebase JS SDK v7.20.0 and later, measurementId is optional
+//  PASTE YOUR FIREBASE CONFIG HERE
+// ─────────────────────────────────────────────────────────────
 const firebaseConfig = {
   apiKey: "AIzaSyAgJtRXV9pm2e8mF9eSH1WMHwhFJaHFHRo",
   authDomain: "icu-dashboard-ea208.firebaseapp.com",
@@ -15,15 +16,6 @@ const firebaseConfig = {
   messagingSenderId: "996328709559",
   appId: "1:996328709559:web:b7740aba195357a5e55c32",
   measurementId: "G-Q7WRSSLJ35"
-};
-// ─────────────────────────────────────────────────────────────
-const firebaseConfig = {
-  apiKey: "PASTE_YOUR_API_KEY_HERE",
-  authDomain: "PASTE_YOUR_AUTH_DOMAIN_HERE",
-  projectId: "PASTE_YOUR_PROJECT_ID_HERE",
-  storageBucket: "PASTE_YOUR_STORAGE_BUCKET_HERE",
-  messagingSenderId: "PASTE_YOUR_MESSAGING_SENDER_ID_HERE",
-  appId: "PASTE_YOUR_APP_ID_HERE",
 };
 
 // ─────────────────────────────────────────────────────────────
