@@ -127,7 +127,7 @@ export default function LoginPage({ admins, onLogin }) {
           WebkitTextFillColor: "transparent",
           backgroundClip: "text",
         }}>
-          ICU Command Center
+          SDCC HS Command Center
         </div>
         <div style={{ color: "var(--muted)", fontSize: "0.85rem", marginBottom: 36 }}>
           Enter your admin passcode to continue

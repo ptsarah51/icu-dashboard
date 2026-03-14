@@ -35,13 +35,28 @@ export default function App() {
         const board = await loadBoard();
         if (board) {
           const sessions = await loadSessions();
-          setState({
-            doctors: board.doctors || [],
-            patients: board.patients || [],
-            assignments: board.assignments || {},
-            sessions: sessions || [],
-            lastSaved: board.lastSaved || null,
+          // Auto-fix: assign viewerCodes to any doctor that was added before this feature existed
+          let doctors = board.doctors || [];
+          let needsSave = false;
+          doctors = doctors.map((d) => {
+            if (!d.viewerCode) {
+              needsSave = true;
+              return { ...d, viewerCode: generateViewerCode() };
+            }
+            return d;
           });
+          const newState = {
+            doctors,
+            patients:    board.patients    || [],
+            assignments: board.assignments || {},
+            sessions:    sessions          || [],
+            lastSaved:   board.lastSaved   || null,
+          };
+          setState(newState);
+          // Save the patched doctors back to Firebase silently
+          if (needsSave) {
+            await saveBoard(newState).catch(() => {});
+          }
         }
       } catch (err) {
         console.warn("Firebase load failed:", err);
@@ -54,9 +69,16 @@ export default function App() {
 
   useEffect(() => {
     if (!isViewer) return;
-    setLoading(true);
+    // Subscribe once — Firestore pushes the first snapshot immediately (~200ms),
+    // then pushes every time admin saves. No polling, no manual refresh needed.
     const unsub = subscribeToBoardState((board) => {
-      setState((prev) => ({ ...prev, ...board }));
+      setState((prev) => ({
+        ...prev,
+        doctors:     board.doctors     || prev.doctors,
+        patients:    board.patients    || prev.patients,
+        assignments: board.assignments || prev.assignments,
+        lastSaved:   board.lastSaved   || prev.lastSaved,
+      }));
       setLoading(false);
     });
     return () => unsub();
@@ -209,7 +231,7 @@ export default function App() {
     );
   }
 
-  if (isViewer) return <ViewerApp state={state} />;
+  if (isViewer) return <ViewerApp state={state} loading={loading} />;
   if (!currentAdmin) return <LoginPage admins={admins} onLogin={handleLogin} />;
 
   return (

@@ -1,10 +1,9 @@
-import { useState, useEffect } from "react";
+import { useState } from "react";
 import { getInitials, DOC_COLORS, getDoctorPatients, isKuwaiti, isMale,
          fmtDate, STATUS_OPTIONS, LOCATION_COLORS, groupByLocation } from "../utils/helpers";
-import { subscribeToBoardState, savePatientStatuses } from "../utils/firebase";
+import { savePatientStatuses } from "../utils/firebase";
 
-export default function ViewerApp({ state: initialState }) {
-  const [state, setState] = useState(initialState);
+export default function ViewerApp({ state, loading }) {
   const [viewerCode, setViewerCode] = useState("");
   const [loggedInDoc, setLoggedInDoc] = useState(null);
   const [codeError, setCodeError] = useState("");
@@ -12,20 +11,20 @@ export default function ViewerApp({ state: initialState }) {
   const [saving, setSaving] = useState(false);
   const [saved, setSaved] = useState(false);
 
-  // Real-time updates
-  useEffect(() => {
-    const unsub = subscribeToBoardState((board) => {
-      setState((prev) => ({ ...prev, ...board }));
-    });
-    return () => unsub();
-  }, []);
-
+  // State comes from App.jsx which holds a single live Firestore subscription.
+  // Updates arrive in real-time the moment the admin saves — no polling needed.
   const { doctors, patients, assignments, lastSaved } = state;
+
+  // Keep loggedInDoc in sync with live doctor data (e.g. name or code changes)
+  const currentDoc = loggedInDoc
+    ? doctors.find((d) => d.id === loggedInDoc.id) || loggedInDoc
+    : null;
 
   // Login by viewer code
   const handleViewerLogin = () => {
     const code = viewerCode.trim().toUpperCase();
-    const match = doctors.find((d) => d.viewerCode === code);
+    // Match case-insensitively so codes work regardless of how they were stored
+    const match = doctors.find((d) => d.viewerCode && d.viewerCode.toUpperCase() === code);
     if (match) {
       setLoggedInDoc(match);
       setCodeError("");
@@ -36,7 +35,12 @@ export default function ViewerApp({ state: initialState }) {
       });
       setLocalStatuses(statusMap);
     } else {
-      setCodeError("Code not recognised. Check with your consultant.");
+      // If doctors haven't loaded from Firebase yet, give a clearer message
+      if (doctors.length === 0) {
+        setCodeError("Still loading — please wait a moment and try again.");
+      } else {
+        setCodeError("Code not recognised. Check with your consultant.");
+      }
       setViewerCode("");
     }
   };
@@ -58,7 +62,7 @@ export default function ViewerApp({ state: initialState }) {
   };
 
   // ── Viewer Login Screen ──────────────────────────────────
-  if (!loggedInDoc) {
+  if (!currentDoc) {
     return (
       <div style={{
         minHeight: "100vh", background: "var(--bg)",
@@ -76,10 +80,25 @@ export default function ViewerApp({ state: initialState }) {
             background: "linear-gradient(135deg, var(--accent), var(--accent3))",
             WebkitBackgroundClip: "text", WebkitTextFillColor: "transparent", backgroundClip: "text",
             marginBottom: 6,
-          }}>ICU Viewer</div>
+          }}>SDCC HS Viewer</div>
           <div style={{ color: "var(--muted)", fontSize: "0.82rem", marginBottom: 28 }}>
             Enter your personal viewer code to see your patient list
           </div>
+
+          {loading && (
+            <div style={{
+              display: "flex", alignItems: "center", justifyContent: "center", gap: 8,
+              marginBottom: 16, fontSize: "0.78rem", color: "var(--muted)",
+            }}>
+              <div style={{
+                width: 14, height: 14,
+                border: "2px solid var(--border)", borderTop: "2px solid var(--accent)",
+                borderRadius: "50%", animation: "spin 0.8s linear infinite",
+              }} />
+              Connecting to server…
+              <style>{`@keyframes spin { to { transform: rotate(360deg); } }`}</style>
+            </div>
+          )}
 
           <input
             className="input-field"
@@ -101,10 +120,10 @@ export default function ViewerApp({ state: initialState }) {
   }
 
   // ── Doctor's Patient List ────────────────────────────────
-  const myPatients = getDoctorPatients(loggedInDoc.id, patients, assignments);
+  const myPatients = getDoctorPatients(currentDoc.id, patients, assignments);
   const locationGroups = groupByLocation(myPatients.filter((p) => !p.isUnitWork));
   const unitWorkItems = myPatients.filter((p) => p.isUnitWork);
-  const docIndex = doctors.findIndex((d) => d.id === loggedInDoc.id);
+  const docIndex = doctors.findIndex((d) => d.id === currentDoc.id);
   const c1 = DOC_COLORS[docIndex % DOC_COLORS.length];
   const c2 = DOC_COLORS[(docIndex + 2) % DOC_COLORS.length];
 
@@ -117,7 +136,7 @@ export default function ViewerApp({ state: initialState }) {
             {getInitials(loggedInDoc.name)}
           </div>
           <div>
-            <div className="viewer-title" style={{ textAlign: "left" }}>{loggedInDoc.name}</div>
+            <div className="viewer-title" style={{ textAlign: "left" }}>{currentDoc.name}</div>
             <div style={{ color: "var(--muted)", fontSize: "0.75rem" }}>
               {myPatients.filter(p => !p.isUnitWork).length} patients · Last updated: {fmtDate(lastSaved)}
             </div>

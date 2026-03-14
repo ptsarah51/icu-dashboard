@@ -100,7 +100,7 @@ export default function AdminBoard({
         <div className="logo">
           <div className="logo-icon">🏥</div>
           <div>
-            <div className="logo-text">ICU Command Center</div>
+            <div className="logo-text">SDCC HS Command Center</div>
             <div className="logo-sub">Patient Distribution Dashboard</div>
           </div>
         </div>
