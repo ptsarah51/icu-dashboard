@@ -5,11 +5,10 @@ import ViewerApp from "./components/ViewerApp";
 import LoginPage from "./components/LoginPage";
 import { loadAdmins, saveAdmins } from "./utils/storage";
 import {
-  saveBoard, loadBoard, saveSession, loadSessions,
-  saveAdminsToFirebase, loadAdminsFromFirebase,
-  subscribeToBoardState,
+  saveBoard, loadBoard, saveSession, overwriteTodaySession, loadSessions,
+  saveAdminsToFirebase, loadAdminsFromFirebase, subscribeToBoardState,
 } from "./utils/firebase";
-import { uid } from "./utils/helpers";
+import { uid, generateViewerCode } from "./utils/helpers";
 
 function defaultBoardState() {
   return { doctors: [], patients: [], assignments: {}, sessions: [], lastSaved: null };
@@ -25,18 +24,14 @@ export default function App() {
   const stateRef = useRef(state);
   stateRef.current = state;
 
-  // ── Load initial data from Firebase ─────────────────────
   useEffect(() => {
     async function init() {
       try {
-        // Load admins from Firebase (fallback to localStorage)
         const firebaseAdmins = await loadAdminsFromFirebase();
         if (firebaseAdmins && firebaseAdmins.length > 0) {
           setAdmins(firebaseAdmins);
-          saveAdmins(firebaseAdmins); // keep local copy in sync
+          saveAdmins(firebaseAdmins);
         }
-
-        // Load board state
         const board = await loadBoard();
         if (board) {
           const sessions = await loadSessions();
@@ -49,7 +44,7 @@ export default function App() {
           });
         }
       } catch (err) {
-        console.warn("Firebase load failed, using local state:", err);
+        console.warn("Firebase load failed:", err);
       } finally {
         setLoading(false);
       }
@@ -57,18 +52,11 @@ export default function App() {
     init();
   }, []);
 
-  // ── Viewer: real-time subscription ──────────────────────
   useEffect(() => {
     if (!isViewer) return;
     setLoading(true);
     const unsub = subscribeToBoardState((board) => {
-      setState((prev) => ({
-        ...prev,
-        doctors: board.doctors || [],
-        patients: board.patients || [],
-        assignments: board.assignments || {},
-        lastSaved: board.lastSaved || null,
-      }));
+      setState((prev) => ({ ...prev, ...board }));
       setLoading(false);
     });
     return () => unsub();
@@ -83,8 +71,9 @@ export default function App() {
     try { await saveAdminsToFirebase(updated); } catch (e) { console.warn(e); }
   }, []);
 
-  const addDoctor = useCallback((name) => {
-    const doc = { id: uid(), name };
+  // addDoctor now receives viewerCode too
+  const addDoctor = useCallback((name, viewerCode) => {
+    const doc = { id: uid(), name, viewerCode: viewerCode || generateViewerCode() };
     setState((prev) => ({
       ...prev,
       doctors: [...prev.doctors, doc],
@@ -100,7 +89,7 @@ export default function App() {
     });
   }, []);
 
-  const importPatients = useCallback((file) => {
+  const importPatients = useCallback((file, location) => {
     return new Promise((resolve, reject) => {
       const reader = new FileReader();
       reader.onload = (e) => {
@@ -128,18 +117,27 @@ export default function App() {
               patientId: get("id", "patientid", "mrn", "file", "filenumber"),
               diagnosis: get("diagnosis", "dx", "condition", "complaint"),
               bed: get("bed", "bednumber", "bedno", "room"),
+              location: location || "Unspecified",
+              status: "",
+              isUnitWork: false,
             };
           }).filter((p) => p.name && p.name !== "Unknown");
 
           if (patients.length === 0) { reject(new Error("No patients found")); return; }
 
+          // Merge: keep existing patients from other locations, replace this location's patients
           setState((prev) => {
-            const pidSet = new Set(patients.map((p) => p.id));
+            const existing = prev.patients.filter((p) => p.location !== location && !p.isUnitWork);
+            const merged = [...existing, ...patients];
+            // Clean up assignments for removed patients
+            const pidSet = new Set(merged.map((p) => p.id));
             const assignments = {};
             Object.keys(prev.assignments).forEach((docId) => {
-              assignments[docId] = (prev.assignments[docId] || []).filter((id) => pidSet.has(id));
+              assignments[docId] = (prev.assignments[docId] || []).filter((id) =>
+                pidSet.has(id) || prev.patients.find((p) => p.id === id && p.isUnitWork)
+              );
             });
-            return { ...prev, patients, assignments };
+            return { ...prev, patients: merged, assignments };
           });
           resolve(patients.length);
         } catch (err) { reject(err); }
@@ -148,7 +146,22 @@ export default function App() {
     });
   }, []);
 
-  const assignPatient = useCallback((patientId, fromSource, toDocId) => {
+  const assignPatient = useCallback((patientId, fromSource, toDocId, unitWorkTask) => {
+    // Unit work task: { name, doctorId }
+    if (unitWorkTask) {
+      const task = {
+        id: uid(), name: unitWorkTask.name,
+        isUnitWork: true, location: "Unit Work", status: "",
+      };
+      setState((prev) => {
+        const assignments = { ...prev.assignments };
+        if (!assignments[unitWorkTask.doctorId]) assignments[unitWorkTask.doctorId] = [];
+        assignments[unitWorkTask.doctorId] = [...assignments[unitWorkTask.doctorId], task.id];
+        return { ...prev, patients: [...prev.patients, task], assignments };
+      });
+      return;
+    }
+
     setState((prev) => {
       const assignments = { ...prev.assignments };
       if (fromSource !== "pool" && assignments[fromSource]) {
@@ -164,8 +177,7 @@ export default function App() {
     });
   }, []);
 
-  // ── Save & Publish → writes to Firebase ─────────────────
-  const saveAndPublish = useCallback(async () => {
+  const saveAndPublish = useCallback(async (mode) => {
     const current = stateRef.current;
     const snap = {
       date: new Date().toISOString(),
@@ -173,38 +185,24 @@ export default function App() {
       assignments: JSON.parse(JSON.stringify(current.assignments)),
       doctors: JSON.parse(JSON.stringify(current.doctors)),
     };
-
-    // Save board to Firebase (viewers see this instantly)
     await saveBoard(current);
-    // Save session snapshot for reports
-    await saveSession(snap);
-
-    setState((prev) => ({
-      ...prev,
-      sessions: [...prev.sessions, snap],
-      lastSaved: snap.date,
-    }));
+    if (mode === "overwrite") {
+      await overwriteTodaySession(snap);
+    } else {
+      await saveSession(snap);
+    }
+    const sessions = await loadSessions();
+    setState((prev) => ({ ...prev, sessions, lastSaved: snap.date }));
   }, []);
 
   const clearSessions = useCallback(() => {
     setState((prev) => ({ ...prev, sessions: [] }));
   }, []);
 
-  // ── Loading screen ───────────────────────────────────────
   if (loading) {
     return (
-      <div style={{
-        minHeight: "100vh", background: "var(--bg)",
-        display: "flex", flexDirection: "column",
-        alignItems: "center", justifyContent: "center", gap: 16,
-      }}>
-        <div style={{
-          width: 48, height: 48,
-          border: "3px solid var(--border)",
-          borderTop: "3px solid var(--accent)",
-          borderRadius: "50%",
-          animation: "spin 0.8s linear infinite",
-        }} />
+      <div style={{ minHeight: "100vh", background: "var(--bg)", display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", gap: 16 }}>
+        <div style={{ width: 48, height: 48, border: "3px solid var(--border)", borderTop: "3px solid var(--accent)", borderRadius: "50%", animation: "spin 0.8s linear infinite" }} />
         <div style={{ color: "var(--muted)", fontSize: "0.9rem" }}>Connecting…</div>
         <style>{`@keyframes spin { to { transform: rotate(360deg); } }`}</style>
       </div>
