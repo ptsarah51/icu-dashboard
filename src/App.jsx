@@ -8,7 +8,7 @@ import {
   saveBoard, loadBoard, saveSession, overwriteTodaySession, loadSessions,
   saveAdminsToFirebase, loadAdminsFromFirebase, subscribeToBoardState,
 } from "./utils/firebase";
-import { uid, generateViewerCode } from "./utils/helpers";
+import { uid, generateViewerCode, markNewRecurrent } from "./utils/helpers";
 
 function defaultBoardState() {
   return { doctors: [], patients: [], assignments: {}, sessions: [], lastSaved: null };
@@ -148,7 +148,7 @@ export default function App() {
           const wb = XLSX.read(e.target.result, { type: "binary" });
           const ws = wb.Sheets[wb.SheetNames[0]];
           const rows = XLSX.utils.sheet_to_json(ws, { defval: "" });
-          const patients = rows.map((row) => {
+          const rawPatients = rows.map((row) => {
             const get = (...keys) => {
               for (const k of keys) {
                 for (const rk of Object.keys(row)) {
@@ -174,10 +174,12 @@ export default function App() {
             };
           }).filter((p) => p.name && p.name !== "Unknown");
 
-          if (patients.length === 0) { reject(new Error("No patients found")); return; }
+          if (rawPatients.length === 0) { reject(new Error("No patients found")); return; }
 
           // Merge: keep existing patients from other locations, replace this location's patients
           setState((prev) => {
+            // Mark new vs recurrent using session history
+            const patients = markNewRecurrent(rawPatients, prev.sessions);
             const existing = prev.patients.filter((p) => p.location !== location && !p.isUnitWork);
             const merged = [...existing, ...patients];
             // Clean up assignments for removed patients
@@ -251,6 +253,23 @@ export default function App() {
     setState((prev) => ({ ...prev, sessions: [] }));
   }, []);
 
+  const resetDashboard = useCallback(async () => {
+    const empty = {
+      doctors: [], patients: [], assignments: {}, lastSaved: new Date().toISOString(),
+    };
+    setState((prev) => ({ ...prev, ...empty }));
+    try { await saveBoard(empty); } catch (e) { console.warn(e); }
+  }, []);
+
+  const archivePool = useCallback(async () => {
+    // Remove all unassigned patients from the board (assigned ones stay)
+    setState((prev) => {
+      const assignedIds = new Set(Object.values(prev.assignments).flat());
+      const patients = prev.patients.filter((p) => assignedIds.has(p.id));
+      return { ...prev, patients };
+    });
+  }, []);
+
   if (loading) {
     return (
       <div style={{ minHeight: "100vh", background: "var(--bg)", display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", gap: 16 }}>
@@ -277,6 +296,8 @@ export default function App() {
       onClearSessions={clearSessions}
       onSaveAdmins={handleSaveAdmins}
       onLogout={handleLogout}
+      onResetDashboard={resetDashboard}
+      onArchivePool={archivePool}
     />
   );
 }

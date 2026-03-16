@@ -113,9 +113,12 @@ body::before {
 /* ── PATIENT POOL ── */
 .patient-pool {
   background: var(--surface2); border: 1px solid var(--border);
-  border-radius: 12px; padding: 12px;
-  min-height: 80px; max-height: 340px; overflow-y: auto;
+  border-radius: 12px; padding: 10px;
+  min-height: 80px; overflow-y: auto;
   display: flex; flex-direction: column; gap: 6px;
+  /* Cards fill the full width without overflow */
+  width: 100%;
+  box-sizing: border-box;
 }
 
 /* ── PATIENT CARD ── */
@@ -126,6 +129,10 @@ body::before {
   cursor: grab; transition: all 0.2s;
   position: relative; overflow: hidden;
   user-select: none;
+  /* Prevent cards from being crushed in narrow containers */
+  min-width: 0;
+  width: 100%;
+  box-sizing: border-box;
 }
 .patient-card::before {
   content: '';
@@ -137,7 +144,10 @@ body::before {
 .patient-card:hover { border-color: var(--accent); transform: translateX(2px); }
 .patient-card.dragging { opacity: 0.4; transform: scale(0.97); }
 
-.patient-name { font-weight: 600; font-size: 0.85rem; margin-bottom: 3px; }
+.patient-name {
+  font-weight: 600; font-size: 0.85rem; margin-bottom: 3px;
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
 .patient-meta { display: flex; gap: 6px; flex-wrap: wrap; }
 
 .tag {
