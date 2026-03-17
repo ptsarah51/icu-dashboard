@@ -149,30 +149,50 @@ export default function App() {
           const ws = wb.Sheets[wb.SheetNames[0]];
           const rows = XLSX.utils.sheet_to_json(ws, { defval: "" });
           const rawPatients = rows.map((row) => {
+            // Flexible column matcher — normalises key names for comparison
             const get = (...keys) => {
               for (const k of keys) {
+                const needle = k.toLowerCase().replace(/[\s_\-]/g, "");
                 for (const rk of Object.keys(row)) {
-                  if (rk.toLowerCase().replace(/[\s_]/g, "") === k.toLowerCase().replace(/[\s_]/g, "")) {
-                    return String(row[rk] || "").trim();
+                  if (rk.toLowerCase().replace(/[\s_\-]/g, "") === needle) {
+                    const v = row[rk];
+                    if (v === null || v === undefined) return "";
+                    return String(v).trim();
                   }
                 }
               }
               return "";
             };
+
+            // Age: prefer direct Age column, fall back to calculating from Birth Date
+            let age = get("age");
+            if (!age) {
+              const bd = get("birthdate", "dateofbirth", "dob", "birth date");
+              if (bd) {
+                const born = new Date(bd);
+                if (!isNaN(born)) {
+                  age = String(Math.floor((Date.now() - born) / 31557600000));
+                }
+              }
+            }
+
             return {
               id: uid(),
-              name: get("name", "patientname", "fullname", "patient") || "Unknown",
-              age: get("age"),
+              // Supports both "Patient Name" (hospital export) and plain "Name"
+              name: get("patientname", "patient name", "name", "fullname", "patient") || "Unknown",
+              age,
               nationality: get("nationality", "nat", "nation"),
               gender: get("gender", "sex"),
-              patientId: get("id", "patientid", "mrn", "file", "filenumber"),
+              // Supports "File Number" (hospital export) and "ID", "MRN" etc.
+              patientId: get("filenumber", "file number", "fileno", "id", "patientid", "mrn", "file"),
               diagnosis: get("diagnosis", "dx", "condition", "complaint"),
-              bed: get("bed", "bednumber", "bedno", "room"),
+              // Supports "Bed Number" (hospital export) and plain "Bed"
+              bed: get("bednumber", "bed number", "bedno", "bed", "room"),
               location: location || "Unspecified",
               status: "",
               isUnitWork: false,
             };
-          }).filter((p) => p.name && p.name !== "Unknown");
+          }).filter((p) => p.name && p.name !== "Unknown" && p.name.trim() !== "");
 
           if (rawPatients.length === 0) { reject(new Error("No patients found")); return; }
 
