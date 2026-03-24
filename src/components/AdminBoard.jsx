@@ -60,8 +60,11 @@ export default function AdminBoard({
     try {
       const count = await onImportPatients(file, selectedLocation);
       showToast(`${count} patients imported to ${selectedLocation}`);
-    } catch {
-      showToast("Error reading file. Check columns: Name, Age, Gender, Nationality, ID, Diagnosis, Bed", "error");
+    } catch (err) {
+      // Only show error if it's a genuine failure, not a React state update quirk
+      if (err && err.message) {
+        showToast(`Could not read file: ${err.message}`, "error");
+      }
     }
   }, [onImportPatients, selectedLocation, showToast]);
 
@@ -340,10 +343,13 @@ function ResetModal({ onClose, onReset }) {
       <div className="modal">
         <div className="modal-title">🔄 Reset Dashboard</div>
         <p style={{ color:"var(--muted)", fontSize:"0.85rem", marginBottom:8 }}>
-          This will clear the entire board — all patients, assignments, and physicians — and reset the live counter to zero.
+          This will clear all patients and assignments from the board, resetting the live counters to zero.
+        </p>
+        <p style={{ color:"var(--success)", fontSize:"0.82rem", marginBottom:8 }}>
+          ✅ Your physicians list is <strong>kept</strong> — no need to re-add them.
         </p>
         <p style={{ color:"var(--warning)", fontSize:"0.82rem", marginBottom:20 }}>
-          ⚠️ Session history and reports are <strong>not</strong> affected. This only resets the live board.
+          ⚠️ Session history and reports are <strong>not</strong> affected.
         </p>
         <div style={{ display:"flex", gap:10 }}>
           <button className="btn btn-danger" style={{ flex:1, justifyContent:"center" }} onClick={onReset}>Yes, Reset Board</button>

@@ -192,7 +192,7 @@ export default function App() {
               status: "",
               isUnitWork: false,
             };
-          }).filter((p) => p.name && p.name !== "Unknown" && p.name.trim() !== "");
+          }).filter((p) => p.name && p.name !== "Unknown" && p.name.trim() !== "" && p.name.toLowerCase() !== "patient name");
 
           if (rawPatients.length === 0) { reject(new Error("No patients found")); return; }
 
@@ -212,7 +212,7 @@ export default function App() {
             });
             return { ...prev, patients: merged, assignments };
           });
-          resolve(patients.length);
+          resolve(rawPatients.length);
         } catch (err) { reject(err); }
       };
       reader.readAsBinaryString(file);
@@ -274,11 +274,20 @@ export default function App() {
   }, []);
 
   const resetDashboard = useCallback(async () => {
-    const empty = {
-      doctors: [], patients: [], assignments: {}, lastSaved: new Date().toISOString(),
-    };
-    setState((prev) => ({ ...prev, ...empty }));
-    try { await saveBoard(empty); } catch (e) { console.warn(e); }
+    setState((prev) => {
+      // Keep doctors and their assignments structure, just clear patients
+      const freshAssignments = {};
+      prev.doctors.forEach((d) => { freshAssignments[d.id] = []; });
+      const updated = {
+        ...prev,
+        patients: [],
+        assignments: freshAssignments,
+        lastSaved: new Date().toISOString(),
+      };
+      // Save to Firebase in background
+      saveBoard(updated).catch((e) => console.warn(e));
+      return updated;
+    });
   }, []);
 
   const archivePool = useCallback(async () => {
